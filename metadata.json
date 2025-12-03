@@ -1,0 +1,5 @@
+{
+  "name": "MediStock Clinic Manager",
+  "description": "A comprehensive stock and inventory management system for clinics and pharmacies with role-based access, POS, and invoice generation.",
+  "requestFramePermissions": []
+}
