@@ -1,7 +1,16 @@
 import { GoogleGenAI } from "@google/genai";
 
 const getClient = () => {
-  const apiKey = process.env.API_KEY; 
+  let apiKey = '';
+  try {
+    // Check if process is defined to avoid ReferenceError in browser
+    if (typeof process !== 'undefined' && process.env) {
+      apiKey = process.env.API_KEY || '';
+    }
+  } catch (e) {
+    console.warn("Environment variable access failed", e);
+  }
+  
   if (!apiKey) return null;
   return new GoogleGenAI({ apiKey });
 };
@@ -9,7 +18,7 @@ const getClient = () => {
 export const generateMedicineDescription = async (medicineName: string): Promise<string> => {
   const ai = getClient();
   if (!ai) {
-    return "API Key not configured. Please add your Gemini API Key.";
+    return "API Key not configured. Please add your Gemini API Key to use AI features.";
   }
 
   try {
