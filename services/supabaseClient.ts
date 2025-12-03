@@ -27,10 +27,9 @@ export const authService = {
 
     if (authError) throw authError;
 
-    // 2. Create a profile record if user creation was successful and we have an ID
-    if (authData.user && !authData.session) {
-      // Email verification required, profile creation might need to wait or happen now
-      // We will try to create it now so it exists when they verify.
+    // 2. Attempt to create profile record immediately. 
+    // We try this regardless of session state to ensure data integrity.
+    if (authData.user) {
       const { error: profileError } = await supabase
         .from('profiles')
         .insert([
@@ -45,7 +44,9 @@ export const authService = {
         ]);
         
       if (profileError) {
-        console.error("Profile creation failed (might rely on DB trigger):", profileError);
+        // If it fails (e.g. RLS blocks it because email isn't verified yet), 
+        // we will handle it via self-healing in getUserProfile upon first login.
+        console.warn("Profile creation during signup pending:", profileError.message);
       }
     }
 
@@ -88,27 +89,61 @@ export const authService = {
 
 export const dbService = {
   async getUserProfile(userId: string): Promise<User | null> {
+    // 1. Try to fetch existing profile
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
 
-    if (error) {
-      console.error("Error fetching profile:", error);
-      return null;
+    if (data) {
+      return {
+        id: data.id,
+        username: data.email?.split('@')[0] || 'User',
+        email: data.email,
+        role: data.role as UserRole,
+        clinicName: data.clinic_name,
+        logoUrl: data.logo_url,
+        currency: data.currency || 'USD'
+      };
     }
 
-    // Map DB fields to User interface
-    return {
-      id: data.id,
-      username: data.email?.split('@')[0] || 'User',
-      email: data.email,
-      role: data.role as UserRole,
-      clinicName: data.clinic_name,
-      logoUrl: data.logo_url,
-      currency: data.currency || 'USD'
-    };
+    // 2. Self-Healing: If profile is missing but user is authenticated
+    // (Happens if signup profile creation failed or email verification flow skipped it)
+    console.log("Profile not found. Attempting self-healing...");
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (user && user.id === userId) {
+      const clinicName = user.user_metadata?.clinic_name || 'My Clinic';
+      const newProfile = {
+        id: userId,
+        email: user.email,
+        clinic_name: clinicName,
+        role: 'ADMIN',
+        currency: 'USD',
+        created_at: new Date().toISOString()
+      };
+
+      const { error: insertError } = await supabase
+        .from('profiles')
+        .insert([newProfile]);
+
+      if (!insertError) {
+        return {
+          id: userId,
+          username: user.email?.split('@')[0] || 'User',
+          email: user.email,
+          role: UserRole.ADMIN,
+          clinicName: clinicName,
+          logoUrl: '',
+          currency: 'USD'
+        };
+      } else {
+        console.error("Self-healing failed:", insertError);
+      }
+    }
+
+    return null;
   },
 
   async updateProfile(userId: string, updates: Partial<User>) {

@@ -729,9 +729,15 @@ export default function App() {
         const salesData = await dbService.fetchSales();
         setInventory(inv);
         setSales(salesData);
+      } else {
+        // If profile not found even after self-healing attempt in getUserProfile
+        console.error("Critical: Profile still missing after self-heal.");
+        await authService.logout();
+        setError("Account setup incomplete. Please contact support.");
       }
     } catch (e) {
       console.error(e);
+      setError("Failed to load user data.");
     } finally {
       setLoading(false);
     }
@@ -745,6 +751,8 @@ export default function App() {
       const data = await authService.login(email, password);
       if (data.user) {
         await loadUserData(data.user.id);
+      } else {
+        setLoading(false);
       }
     } catch (err: any) {
       setError(err.message || 'Login failed');
