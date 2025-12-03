@@ -28,11 +28,9 @@ export const authService = {
     if (authError) throw authError;
 
     // 2. Create a profile record if user creation was successful and we have an ID
-    // Note: In a real app with triggers, this might happen automatically on the DB side.
-    // We do it here manually for the frontend-drive approach.
     if (authData.user && !authData.session) {
       // Email verification required, profile creation might need to wait or happen now
-      // We will try to create it now.
+      // We will try to create it now so it exists when they verify.
       const { error: profileError } = await supabase
         .from('profiles')
         .insert([
@@ -54,6 +52,16 @@ export const authService = {
     return authData;
   },
 
+  async verifyOtp(email: string, token: string) {
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type: 'signup'
+    });
+    if (error) throw error;
+    return data;
+  },
+
   async login(email: string, password: string) {
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
@@ -70,7 +78,7 @@ export const authService = {
 
   async resetPassword(email: string) {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin, // handle redirect loop if needed
+      redirectTo: window.location.origin, 
     });
     if (error) throw error;
   }
@@ -119,7 +127,6 @@ export const dbService = {
   },
 
   async fetchInventory() {
-    // RLS policies on Supabase should filter this by user_id/clinic_id automatically
     const { data, error } = await supabase
       .from('medicines')
       .select('*')
@@ -143,7 +150,7 @@ export const dbService = {
   async upsertMedicine(medicine: Medicine, userId: string) {
     const payload = {
       id: medicine.id.includes('-') ? medicine.id : undefined, // Let DB generate ID if it's new/temp
-      user_id: userId, // associate with current user/clinic
+      user_id: userId,
       name: medicine.name,
       description: medicine.description,
       batch_number: medicine.batchNumber,
