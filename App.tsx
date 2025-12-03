@@ -546,13 +546,13 @@ const POSView = ({ user, inventory, onUpdateInventory, onRecordSale }: {
 // 4. Main App
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [currentView, setCurrentView] = useState('login'); // login, register, forgot, verify, dashboard, inventory, pos, settings
+  const [currentView, setCurrentView] = useState('login'); // login, register, forgot, dashboard, inventory, pos, settings
   const [inventory, setInventory] = useState<Medicine[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   
   // Auth Form State
-  const [authForm, setAuthForm] = useState({ email: '', password: '', clinicName: '', code: '' });
-  const [authStep, setAuthStep] = useState<'login' | 'signup' | 'verify' | 'forgot'>('login');
+  const [authForm, setAuthForm] = useState({ email: '', password: '', clinicName: '' });
+  const [authStep, setAuthStep] = useState<'login' | 'signup' | 'forgot'>('login');
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
 
@@ -623,26 +623,23 @@ export default function App() {
     setAuthError('');
 
     try {
-      await authService.signUp(authForm.email, authForm.password, authForm.clinicName);
-      setAuthStep('verify');
+      const { session, user: authUser } = await authService.signUp(authForm.email, authForm.password, authForm.clinicName);
+      
+      if (session && authUser) {
+        // Auto-login successful (Email verification disabled in Supabase)
+        const profile = await dbService.getUserProfile(authUser.id);
+        if (profile) {
+          setUser(profile);
+          setCurrentView('inventory');
+        }
+      } else {
+        // Email verification required
+        alert("Account created successfully! Please check your email to confirm your account before logging in.");
+        setAuthStep('login');
+      }
     } catch (err: any) {
       setAuthError(err.message || 'Signup failed');
     } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleVerify = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthLoading(true);
-    setAuthError('');
-
-    try {
-      await authService.verifyOtp(authForm.email, authForm.code);
-      // Auto login after verify
-      await handleLogin(e);
-    } catch (err: any) {
-      setAuthError(err.message || 'Verification failed');
       setAuthLoading(false);
     }
   };
@@ -669,7 +666,7 @@ export default function App() {
     setSales([]);
     setCurrentView('login');
     setAuthStep('login');
-    setAuthForm({ email: '', password: '', clinicName: '', code: '' });
+    setAuthForm({ email: '', password: '', clinicName: '' });
   };
 
   const handleClinicUpdate = async (settings: Partial<User>) => {
@@ -725,19 +722,6 @@ export default function App() {
                 Already have an account? <button type="button" onClick={() => setAuthStep('login')} className="text-teal-600 font-semibold">Login</button>
               </div>
             </form>
-          )}
-
-          {authStep === 'verify' && (
-             <form onSubmit={handleVerify} className="space-y-4">
-             <div className="bg-blue-50 text-blue-800 p-3 rounded text-sm mb-4">
-               An email code has been sent to {authForm.email}. Please enter it below.
-             </div>
-             <Input label="Verification Code" placeholder="e.g. 123456" value={authForm.code} onChange={e => setAuthForm({...authForm, code: e.target.value})} required />
-             <Button type="submit" className="w-full" isLoading={authLoading}>Verify & Login</Button>
-             <div className="text-center text-sm mt-2">
-               <button type="button" onClick={() => setAuthStep('login')} className="text-slate-500">Back to Login</button>
-             </div>
-           </form>
           )}
 
           {authStep === 'forgot' && (
