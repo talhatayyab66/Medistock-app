@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, Medicine, Sale, CartItem } from './types';
 import { authService, dbService, supabase } from './services/supabaseClient';
@@ -692,17 +693,16 @@ const DashboardView = ({ inventory, sales, user }: { inventory: Medicine[], sale
 // --- Main App Component ---
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [authStep, setAuthStep] = useState<'login' | 'signup' | 'forgot-password' | 'verify'>('login');
+  const [authStep, setAuthStep] = useState<'login' | 'signup'>('login');
   const [view, setView] = useState('inventory');
   const [inventory, setInventory] = useState<Medicine[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Auth Form State
-  const [email, setEmail] = useState('');
+  // Auth Form State - No Email, Just Username
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [clinicName, setClinicName] = useState('');
-  const [otpCode, setOtpCode] = useState('');
   const [error, setError] = useState('');
 
   // Initial Data Load
@@ -748,7 +748,7 @@ export default function App() {
     setError('');
     setLoading(true);
     try {
-      const data = await authService.login(email, password);
+      const data = await authService.login(username, password);
       if (data.user) {
         await loadUserData(data.user.id);
       } else {
@@ -765,12 +765,8 @@ export default function App() {
     setError('');
     setLoading(true);
     try {
-      const authData = await authService.signUp(email, password, clinicName);
-      if (authData.user && !authData.session) {
-         // Needs verification
-         setAuthStep('verify');
-         setLoading(false);
-      } else if (authData.user) {
+      const authData = await authService.signUp(username, password, clinicName);
+      if (authData.user) {
          // Auto logged in
          await loadUserData(authData.user.id);
       }
@@ -780,49 +776,14 @@ export default function App() {
     }
   };
 
-  const handleVerify = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      const data = await authService.verifyOtp(email, otpCode);
-      if (data.user || data.session) {
-        const userId = data.user?.id || data.session?.user.id;
-        if (userId) {
-          // If profile wasn't created during signup trigger, create it now? 
-          // We handled profile creation in signUp service, assuming it succeeded.
-          await loadUserData(userId);
-        } else {
-           // Fallback to login
-           setAuthStep('login');
-           alert("Verification successful. Please login.");
-        }
-      }
-    } catch (err: any) {
-      setError(err.message || 'Verification failed');
-      setLoading(false);
-    }
-  };
-
-  const handleForgot = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      await authService.resetPassword(email);
-      alert('Password reset link sent to your email.');
-      setAuthStep('login');
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleLogout = async () => {
     await authService.logout();
     setUser(null);
     setAuthStep('login');
+    // Reset inputs
+    setUsername('');
+    setPassword('');
+    setClinicName('');
   };
 
   if (loading) {
@@ -851,33 +812,15 @@ export default function App() {
             </div>
           )}
 
-          {authStep === 'verify' && (
-            <form onSubmit={handleVerify} className="space-y-4">
-              <div className="text-center mb-4">
-                 <p className="text-sm text-slate-600">We sent a code to <span className="font-semibold">{email}</span></p>
-              </div>
-              <Input 
-                label="Verification Code" 
-                placeholder="123456" 
-                value={otpCode} 
-                onChange={e => setOtpCode(e.target.value)} 
-                required 
-              />
-              <Button type="submit" className="w-full" isLoading={loading}>Verify Email</Button>
-              <div className="text-center mt-4">
-                <button type="button" onClick={() => setAuthStep('login')} className="text-teal-600 text-sm hover:underline">Back to Login</button>
-              </div>
-            </form>
-          )}
-
           {authStep === 'login' && (
             <form onSubmit={handleLogin} className="space-y-4">
               <Input 
-                label="Email" 
-                type="email" 
-                value={email} 
-                onChange={e => setEmail(e.target.value)} 
+                label="Username" 
+                type="text" 
+                value={username} 
+                onChange={e => setUsername(e.target.value)} 
                 required 
+                placeholder="Enter username"
               />
               <Input 
                 label="Password" 
@@ -885,13 +828,11 @@ export default function App() {
                 value={password} 
                 onChange={e => setPassword(e.target.value)} 
                 required 
+                placeholder="Enter password"
               />
-              <div className="text-right">
-                <button type="button" onClick={() => setAuthStep('forgot-password')} className="text-sm text-teal-600 hover:underline">Forgot Password?</button>
-              </div>
               <Button type="submit" className="w-full" isLoading={loading}>Login</Button>
               <div className="text-center mt-4 text-sm text-slate-600">
-                Don't have an account? <button type="button" onClick={() => setAuthStep('signup')} className="text-teal-600 font-semibold hover:underline">Sign up</button>
+                Don't have an account? <button type="button" onClick={() => { setError(''); setAuthStep('signup'); }} className="text-teal-600 font-semibold hover:underline">Sign up</button>
               </div>
             </form>
           )}
@@ -903,43 +844,29 @@ export default function App() {
                 value={clinicName} 
                 onChange={e => setClinicName(e.target.value)} 
                 required 
+                placeholder="e.g. City Health Clinic"
               />
               <Input 
-                label="Email" 
-                type="email" 
-                value={email} 
-                onChange={e => setEmail(e.target.value)} 
+                label="Create Username" 
+                type="text" 
+                value={username} 
+                onChange={e => setUsername(e.target.value)} 
                 required 
+                placeholder="Choose a username"
               />
               <Input 
-                label="Password" 
+                label="Create Password" 
                 type="password" 
                 value={password} 
                 onChange={e => setPassword(e.target.value)} 
                 required 
+                placeholder="Choose a password"
               />
               <Button type="submit" className="w-full" isLoading={loading}>Create Account</Button>
               <div className="text-center mt-4 text-sm text-slate-600">
-                Already have an account? <button type="button" onClick={() => setAuthStep('login')} className="text-teal-600 font-semibold hover:underline">Login</button>
+                Already have an account? <button type="button" onClick={() => { setError(''); setAuthStep('login'); }} className="text-teal-600 font-semibold hover:underline">Login</button>
               </div>
             </form>
-          )}
-
-          {authStep === 'forgot-password' && (
-             <form onSubmit={handleForgot} className="space-y-4">
-               <div className="flex items-center gap-2 mb-2 cursor-pointer" onClick={() => setAuthStep('login')}>
-                  <ChevronLeft size={16} className="text-slate-500"/>
-                  <span className="text-sm text-slate-500">Back</span>
-               </div>
-               <Input 
-                 label="Enter your email" 
-                 type="email" 
-                 value={email} 
-                 onChange={e => setEmail(e.target.value)} 
-                 required 
-               />
-               <Button type="submit" className="w-full" isLoading={loading}>Reset Password</Button>
-             </form>
           )}
         </div>
       </div>

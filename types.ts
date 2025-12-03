@@ -1,3 +1,4 @@
+
 export enum UserRole {
   ADMIN = 'ADMIN',
   SALES = 'SALES'
@@ -8,7 +9,6 @@ export interface User {
   username: string;
   role: UserRole;
   clinicName: string;
-  email?: string; // For verification flow
   logoUrl?: string;
   currency: string;
 }

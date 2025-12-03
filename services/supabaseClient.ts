@@ -1,3 +1,4 @@
+
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Medicine, Sale, User, UserRole } from '../types';
 
@@ -10,32 +11,43 @@ export const STORAGE_KEYS = {
   USER: 'medistock_user',
 };
 
+// Internal domain for mapping usernames to email format required by Supabase
+const DUMMY_DOMAIN = 'medistock.local';
+
+const getEmailFromUsername = (username: string) => {
+  // Remove spaces and special chars to be safe
+  const cleanUsername = username.trim().replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  return `${cleanUsername}@${DUMMY_DOMAIN}`;
+};
+
 // --- Auth Services ---
 
 export const authService = {
-  async signUp(email: string, password: string, clinicName: string) {
-    // 1. Sign up the user
+  async signUp(username: string, password: string, clinicName: string) {
+    const email = getEmailFromUsername(username);
+
+    // 1. Sign up the user with dummy email
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
-          clinic_name: clinicName, // Store metadata
+          clinic_name: clinicName,
+          username: username,
         }
       }
     });
 
     if (authError) throw authError;
 
-    // 2. Attempt to create profile record immediately. 
-    // We try this regardless of session state to ensure data integrity.
+    // 2. Attempt to create profile record immediately.
     if (authData.user) {
       const { error: profileError } = await supabase
         .from('profiles')
         .insert([
           {
             id: authData.user.id,
-            email: email,
+            email: email, // Storing internal email for reference
             clinic_name: clinicName,
             role: 'ADMIN', // Default to Admin on signup
             currency: 'USD',
@@ -44,8 +56,6 @@ export const authService = {
         ]);
         
       if (profileError) {
-        // If it fails (e.g. RLS blocks it because email isn't verified yet), 
-        // we will handle it via self-healing in getUserProfile upon first login.
         console.warn("Profile creation during signup pending:", profileError.message);
       }
     }
@@ -53,34 +63,25 @@ export const authService = {
     return authData;
   },
 
-  async verifyOtp(email: string, token: string) {
-    const { data, error } = await supabase.auth.verifyOtp({
-      email,
-      token,
-      type: 'signup'
-    });
-    if (error) throw error;
-    return data;
-  },
-
-  async login(email: string, password: string) {
+  async login(username: string, password: string) {
+    const email = getEmailFromUsername(username);
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password
     });
-    if (error) throw error;
+    
+    if (error) {
+      // Improve error message for end users
+      if (error.message.includes('Invalid login credentials')) {
+        throw new Error('Incorrect username or password');
+      }
+      throw error;
+    }
     return data;
   },
 
   async logout() {
     const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-  },
-
-  async resetPassword(email: string) {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin, 
-    });
     if (error) throw error;
   }
 };
@@ -97,10 +98,12 @@ export const dbService = {
       .maybeSingle();
 
     if (data) {
+      // Extract username from dummy email if not stored in metadata (fallback)
+      const usernameFromEmail = data.email ? data.email.split('@')[0] : 'User';
+      
       return {
         id: data.id,
-        username: data.email?.split('@')[0] || 'User',
-        email: data.email,
+        username: usernameFromEmail,
         role: data.role as UserRole,
         clinicName: data.clinic_name,
         logoUrl: data.logo_url,
@@ -108,13 +111,14 @@ export const dbService = {
       };
     }
 
-    // 2. Self-Healing: If profile is missing but user is authenticated
-    // (Happens if signup profile creation failed or email verification flow skipped it)
+    // 2. Self-Healing: Create profile if missing
     console.log("Profile not found. Attempting self-healing...");
     const { data: { user } } = await supabase.auth.getUser();
 
     if (user && user.id === userId) {
       const clinicName = user.user_metadata?.clinic_name || 'My Clinic';
+      const username = user.user_metadata?.username || user.email?.split('@')[0] || 'admin';
+      
       const newProfile = {
         id: userId,
         email: user.email,
@@ -131,8 +135,7 @@ export const dbService = {
       if (!insertError) {
         return {
           id: userId,
-          username: user.email?.split('@')[0] || 'User',
-          email: user.email,
+          username: username,
           role: UserRole.ADMIN,
           clinicName: clinicName,
           logoUrl: '',
